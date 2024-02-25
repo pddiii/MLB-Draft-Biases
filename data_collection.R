@@ -15,3 +15,8 @@ draft_df <- bind_rows(draft_list)
 
 # Create a csv file containing the draft information
 # write_csv(draft_df, 'Data/draft_data.csv')
+
+# Collect the Chadwick Bureau player information
+chadwick_data <- chadwick_player_lu()
+
+# write_csv(chadwick_data, 'Data/chadwick_data.csv')
