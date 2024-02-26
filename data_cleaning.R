@@ -115,26 +115,34 @@ glimpse(chadwick)
 ## multiple times. (e.g. Barry Bonds in 2nd round of 1982, and first round 1985)
 bat_draft <- 
   batting %>% 
-  inner_join(draft_info, by = "fg_playerID")
+  inner_join(draft_info, by = "fg_playerID") %>% 
+  mutate(high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
+                              "No"))
 
 # Only the distinct instances of batter's draft info, so only one instance for
 # each fg_playerID
 bat_stats <- 
   bat_draft %>% 
-  distinct(fg_playerID, .keep_all = TRUE)
+  distinct(fg_playerID, .keep_all = TRUE) %>% 
+  mutate(high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
+                              "No"))
 
 # Full Draft information for pitcher's
 pitch_draft <- 
   pitching %>% 
-  inner_join(draft_info, by = "fg_playerID")
+  inner_join(draft_info, by = "fg_playerID") %>% 
+  mutate(high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
+                              "No"))
 
 # Career Stats for each person from the draft information
 pitch_stats <- 
   pitch_draft %>% 
-  distinct(fg_playerID, .keep_all = TRUE)
+  distinct(fg_playerID, .keep_all = TRUE) %>% 
+  mutate(high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
+                              "No"))
 
 # Create csv files for draft information
-# write_csv(bat_draft, 'Data/batters_full_draft.csv')
-# write_csv(bat_stats, 'Data/batters_draft_stats.csv')
-# write_csv(pitch_draft, 'Data/pitchers_full_draft.csv')
-# write_csv(pitch_stats, 'Data/pitchers_draft_stats.csv')
+# write_csv(bat_draft, 'Data/batters/batters_full_draft.csv')
+# write_csv(bat_stats, 'Data/batters/batters_draft_stats.csv')
+# write_csv(pitch_draft, 'Data/pitchers/pitchers_full_draft.csv')
+# write_csv(pitch_stats, 'Data/pitchers/pitchers_draft_stats.csv')
