@@ -102,8 +102,7 @@ draft_info <-
              by = "person_id") %>% 
   # Remove unnecessary variables
   select(-person_first_name, -person_last_name, -person_primary_number, 
-         -person_current_age, -person_height, -person_weight, 
-         -c(person_name_first_last:person_strike_zone_bottom),
+         -person_current_age, -c(person_name_first_last:person_strike_zone_bottom),
          person_primary_position_code, person_primary_position_type, 
          person_bat_side_description, person_pitch_hand_description, -name_last,
          -name_first)
