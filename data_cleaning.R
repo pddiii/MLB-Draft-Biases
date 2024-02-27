@@ -47,6 +47,8 @@ pitching <-
          -c(`O-Swing% (pi)`:`Pace (pi)`), -c(`LD%+`:`CSW%`), -`xFIP-`) %>% 
   replace_na(list(BS = 0, HLD = 0))
 
+rm(bat_columns, pitch_columns)
+
 # Load the MLB Amateur Draft information
 draft_info <- fread('Data/draft_data.csv')
 
@@ -111,6 +113,8 @@ draft_info <-
 glimpse(draft_info)
 glimpse(chadwick)
 
+rm(chadwick)
+
 # The draft info for the batters
 ## Separate from the stats because some players are drafted into the MLB
 ## multiple times. (e.g. Barry Bonds in 2nd round of 1982, and first round 1985)
@@ -118,7 +122,17 @@ bat_draft <-
   batting %>% 
   inner_join(draft_info, by = "fg_playerID") %>% 
   mutate(high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
-                              "No"))
+                              "No"),
+         person_height = str_replace_all(person_height, "\"$", ""))
+
+rm(batting) # remove the batting data
+# Create a list of the players heights
+height_list <- str_match_all(bat_draft$person_height, "\\d+")
+# Convert the heights to inches
+height_ft <- as.integer(unlist(lapply(height_list, function(x) {x[1]}))) * 12
+height_in <- as.integer(unlist(lapply(height_list, function(x) {x[2]}))) + as.integer(height_ft)
+
+bat_draft$person_height <- height_in
 
 # Only the distinct instances of batter's draft info, so only one instance for
 # each fg_playerID
@@ -139,6 +153,7 @@ bat_home_list <- str_match_all(bat_stats$school_name, pattern = "\\((.*?)\\)")
 
 # Extracts the text within the "()", and stores it as a vector
 bat_home_states <- unlist(lapply(bat_home_list, function(x) {x[, 2]}))
+rm(bat_home_list) # Remove the list form of the home states
 
 # removes any results where there was an NA result generated
 bat_home_states <- bat_home_states[!is.na(bat_home_states)]
@@ -173,7 +188,7 @@ bat_stats <- bat_stats %>% mutate(home_state = person_birth_state_province)
 
 # Store all the home_states to the new `home_state` variable within `bat_stats`
 bat_stats$home_state[bat_home_index] <- bat_home_states
-
+rm(bat_home_index, bat_home_states, wrong)
 # Removes players who do not have a person_birth_state_province
 # e.g. Albert Pujols is from Santo Domingo, Dominican Republic
 bat_stats <-
@@ -197,7 +212,7 @@ correct_abbrev <- c("HI", "CA", "IL", "WA", "MI", "VI", "Sonora", "FL", "TX",
 
 # Replace the wrong abbreviations with the corrected ones
 bat_stats$home_state[which(nchar(bat_stats$home_state) > 2)] <- correct_abbrev
-
+rm(correct_abbrev)
 # Select only those with abbreviations with 2 letters, all those with more
 # are international players so they do not have a `home_state`
 bat_stats <- 
@@ -218,7 +233,19 @@ pitch_draft <-
   pitching %>% 
   inner_join(draft_info, by = "fg_playerID") %>% 
   mutate(high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
-                              "No"))
+                              "No"),
+         person_height = str_replace_all(person_height, "\"$", ""))
+
+rm(pitching) # Remove pitching data
+
+height_list <- str_match_all(pitch_draft$person_height, "\\d+")
+
+height_ft <- as.integer(unlist(lapply(height_list, function(x) {x[1]}))) * 12
+height_in <- as.integer(unlist(lapply(height_list, function(x) {x[2]}))) + as.integer(height_ft)
+rm(height_list, height_ft) # Remove the height_list
+
+pitch_draft$person_height <- height_in 
+rm(height_in)
 
 # Career Stats for each person from the draft information
 pitch_stats <- 
@@ -238,6 +265,7 @@ pitch_home_list <- str_match_all(pitch_stats$school_name, pattern = "\\((.*?)\\)
 
 # Extracts the text within the "()", and stores it as a vector
 pitch_home_states <- unlist(lapply(pitch_home_list, function(x) {x[, 2]}))
+rm(pitch_home_list)
 
 # removes any results where there was an NA result generated
 pitch_home_states <- pitch_home_states[!is.na(pitch_home_states)]
@@ -266,13 +294,13 @@ length(comma_states) # 977 elements, same as `comma_index`
 
 # Replace the comma states with the correct abbreviations
 pitch_home_states[comma_index] <- comma_states
-
+rm(comma_index, comma_states, wrong)
 # Create a new variable home_state
 pitch_stats <- pitch_stats %>% mutate(home_state = person_birth_state_province)
 
 # Store all the home_states to the new `home_state` variable within `pitch_stats`
 pitch_stats$home_state[pitch_home_index] <- pitch_home_states
-
+rm(pitch_home_index, pitch_home_states)
 # Removes players who do not have a person_birth_state_province
 # e.g. Albert Pujols is from Santo Domingo, Dominican Republic
 pitch_stats <-
@@ -292,9 +320,11 @@ correct_abbrev <- c("IL", "CT", "TN", "TX", "KS", "CA", "Sonora", "CA",
                     "FL", "TX", "Western Australia", "NV", "AZ", "ON", "TX", 
                     "NY", "ON", "AB")
 
+rm(wrong_abbrev) # remove the wrong abbreviations
+
 # Replace the wrong abbreviations with the corrected ones
 pitch_stats$home_state[which(nchar(pitch_stats$home_state) > 2)] <- correct_abbrev
-
+rm(correct_abbrev)
 # Select only those with abbreviations with 2 letters, all those with more
 # are international players so they do not have a `home_state`
 pitch_stats <- 
