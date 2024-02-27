@@ -1,5 +1,6 @@
 library(data.table)
 library(tidyverse)
+library(datasets) # for state abbreviations
 
 # Load in the batting and pitching data
 batting <- fread('Data/batting_stats.csv')
@@ -127,6 +128,91 @@ bat_stats <-
   mutate(high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
                               "No"))
 
+# Get the indices for the elements which contain a state abbreviation
+# this applies to High School players who have states listed in format of either
+# (CA) or (, CA) (e.g. CA = California)
+bat_home_index <- which(str_detect(bat_stats$school_name, pattern = "\\((.*?)\\)"))
+length(bat_home_index) # 3,222 elements
+
+# List with all the match results for the pattern "(letters)"
+bat_home_list <- str_match_all(bat_stats$school_name, pattern = "\\((.*?)\\)")
+
+# Extracts the text within the "()", and stores it as a vector
+bat_home_states <- unlist(lapply(bat_home_list, function(x) {x[, 2]}))
+
+# removes any results where there was an NA result generated
+bat_home_states <- bat_home_states[!is.na(bat_home_states)]
+length(bat_home_states) # 3,222 elements, same as bat_home_index
+
+# Get the index for the bat_home_stats which contain the pattern ", "
+comma_index <- which(str_detect(bat_home_states, ",\\s"))
+length(comma_index) # 1,726 elements
+
+# Extract the states with the pattern ", " from `bat_home_states`
+comma_states <- bat_home_states[comma_index]
+
+# Determine if there are any incorrect patterns
+wrong <- comma_states[which(!str_detect(comma_states, ", ([:alpha:]+)"))]
+
+# Replace the pattern within the `comma_states` manually
+comma_states[which(!str_detect(comma_states, ", ([:alpha:]+)"))] <- ", FL"
+
+# Extract the letters which follow the ", " pattern into a vector
+comma_states <- 
+  str_match_all(comma_states, ", ([:alpha:]+)") %>% 
+  lapply(function(x) {x[, 2]}) %>% 
+  unlist()
+
+length(comma_states) # 1,726 elements
+
+# Replace the comma states with the correct abbreviations
+bat_home_states[comma_index] <- comma_states
+
+# Create a new variable home_state
+bat_stats <- bat_stats %>% mutate(home_state = person_birth_state_province)
+
+# Store all the home_states to the new `home_state` variable within `bat_stats`
+bat_stats$home_state[bat_home_index] <- bat_home_states
+
+# Removes players who do not have a person_birth_state_province
+# e.g. Albert Pujols is from Santo Domingo, Dominican Republic
+bat_stats <-
+  bat_stats %>% 
+  drop_na(home_state)
+
+# Find the wrong abbreviations
+wrong_abbrev <- 
+  bat_stats %>% 
+  select(school_name, person_birth_state_province, home_state) %>% 
+  slice(which(nchar(bat_stats$home_state) > 2))
+
+# Corrected abbreviations
+correct_abbrev <- c("HI", "CA", "IL", "WA", "MI", "VI", "Sonora", "FL", "TX", 
+                    "Sonora", "HI", "ON", "TX", "CA", "NV", "Chihuahua", "BC",
+                    "OH", "AZ", "TX", "FL", "QC", "ON", "AZ", "Victoria", "ON",
+                    "ON", "Western Australia", "ON", "AZ", "CA", "AB", "CA", 
+                    "ON", "CA", "FL", "HI", "NV", "ON", "Sonora", "NY", 
+                    "Chihuahua", "TX", "Sonora", "TN", "MN", "FL", "IA", "ON",
+                    "KS", "HI", "ON", "IL", "MI", "CT", "Jalisco")
+
+# Replace the wrong abbreviations with the corrected ones
+bat_stats$home_state[which(nchar(bat_stats$home_state) > 2)] <- correct_abbrev
+
+# Select only those with abbreviations with 2 letters, all those with more
+# are international players so they do not have a `home_state`
+bat_stats <- 
+  bat_stats %>% 
+  slice((which(nchar(bat_stats$home_state) <= 2))) %>% 
+  # Remove abbreviations for those such as the Canadians with province such as
+  # Ontario (ON)
+  filter(home_state %in% state.abb)
+
+# add the home_state variable to the full draft info
+bat_draft <-
+  bat_draft %>% 
+  inner_join(bat_stats %>% select(fg_playerID, home_state), 
+             by = "fg_playerID")
+
 # Full Draft information for pitcher's
 pitch_draft <- 
   pitching %>% 
@@ -140,6 +226,89 @@ pitch_stats <-
   distinct(fg_playerID, .keep_all = TRUE) %>% 
   mutate(high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
                               "No"))
+
+# Get the indices for the elements which contain a state abbreviation
+# this applies to High School players who have states listed in format of either
+# (CA) or (, CA) (e.g. CA = California)
+pitch_home_index <- which(str_detect(pitch_stats$school_name, pattern = "\\((.*?)\\)"))
+length(pitch_home_index) # 1,899 elements
+
+# List with all the match results for the pattern "(letters)"
+pitch_home_list <- str_match_all(pitch_stats$school_name, pattern = "\\((.*?)\\)")
+
+# Extracts the text within the "()", and stores it as a vector
+pitch_home_states <- unlist(lapply(pitch_home_list, function(x) {x[, 2]}))
+
+# removes any results where there was an NA result generated
+pitch_home_states <- pitch_home_states[!is.na(pitch_home_states)]
+length(pitch_home_states) # 1,899 elements, same as pitch_home_index
+
+# Get the index for the pitch_home_stats which contain the pattern ", "
+comma_index <- which(str_detect(pitch_home_states, ",\\s"))
+length(comma_index) # 977 elements
+
+# Extract the states with the pattern ", " from `pitch_home_states`
+comma_states <- pitch_home_states[comma_index]
+
+# Determine if there are any incorrect patterns
+wrong <- comma_states[which(!str_detect(comma_states, ", ([:alpha:]+)"))]
+
+# Replace the pattern within the `comma_states` manually
+comma_states[which(!str_detect(comma_states, ", ([:alpha:]+)"))] <- ", FL"
+
+# Extract the letters which follow the ", " pattern into a vector
+comma_states <- 
+  str_match_all(comma_states, ", ([:alpha:]+)") %>% 
+  lapply(function(x) {x[, 2]}) %>% 
+  unlist()
+
+length(comma_states) # 977 elements, same as `comma_index`
+
+# Replace the comma states with the correct abbreviations
+pitch_home_states[comma_index] <- comma_states
+
+# Create a new variable home_state
+pitch_stats <- pitch_stats %>% mutate(home_state = person_birth_state_province)
+
+# Store all the home_states to the new `home_state` variable within `pitch_stats`
+pitch_stats$home_state[pitch_home_index] <- pitch_home_states
+
+# Removes players who do not have a person_birth_state_province
+# e.g. Albert Pujols is from Santo Domingo, Dominican Republic
+pitch_stats <-
+  pitch_stats %>% 
+  drop_na(home_state)
+
+# Find the wrong abbreviations
+wrong_abbrev <- 
+  pitch_stats %>% 
+  select(school_name, person_birth_state_province, home_state) %>% 
+  slice(which(nchar(pitch_stats$home_state) > 2))
+
+# Corrected abbreviations
+correct_abbrev <- c("IL", "CT", "TN", "TX", "KS", "CA", "Sonora", "CA", 
+                    "MN", "HI", "ON", "ON", "ON", "AZ", "Chihuahua", "CA", "QC",
+                    "OH", "FL", "Victoria", "Holland", "BC", "Sonora", "Jalisco", 
+                    "FL", "TX", "Western Australia", "NV", "AZ", "ON", "TX", 
+                    "NY", "ON", "AB")
+
+# Replace the wrong abbreviations with the corrected ones
+pitch_stats$home_state[which(nchar(pitch_stats$home_state) > 2)] <- correct_abbrev
+
+# Select only those with abbreviations with 2 letters, all those with more
+# are international players so they do not have a `home_state`
+pitch_stats <- 
+  pitch_stats %>% 
+  slice((which(nchar(pitch_stats$home_state) <= 2))) %>% 
+  # Remove abbreviations for those such as the Canadians with province such as
+  # Ontario (ON)
+  filter(home_state %in% state.abb)
+
+# add the home_state variable to the full draft info
+pitch_draft <-
+  pitch_draft %>% 
+  inner_join(pitch_stats %>% select(fg_playerID, home_state), 
+             by = "fg_playerID")
 
 # Create csv files for draft information
 # write_csv(bat_draft, 'Data/batters/batters_full_draft.csv')
