@@ -123,7 +123,8 @@ bat_draft <-
   inner_join(draft_info, by = "fg_playerID") %>% 
   mutate(high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
                               "No"),
-         person_height = str_replace_all(person_height, "\"$", ""))
+         person_height = str_replace_all(person_height, "\"$", "")) %>% 
+  replace_na(list(mlb_played_last = 2023))
 
 rm(batting) # remove the batting data
 # Create a list of the players heights
@@ -234,7 +235,8 @@ pitch_draft <-
   inner_join(draft_info, by = "fg_playerID") %>% 
   mutate(high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
                               "No"),
-         person_height = str_replace_all(person_height, "\"$", ""))
+         person_height = str_replace_all(person_height, "\"$", "")) %>% 
+  replace_na(list(mlb_played_last = 2023))
 
 rm(pitching) # Remove pitching data
 
@@ -345,3 +347,17 @@ pitch_draft <-
 # write_csv(bat_stats, 'Data/batters/batters_draft_stats.csv')
 # write_csv(pitch_draft, 'Data/pitchers/pitchers_full_draft.csv')
 # write_csv(pitch_stats, 'Data/pitchers/pitchers_draft_stats.csv')
+# write_csv(bat_stats %>% select(fg_playerID, person_full_name, fWAR, pick_round,
+#                                pick_number, year, person_birth_state_province,
+#                                person_height, person_weight, home_state,
+#                                person_primary_position_abbreviation,
+#                                person_bat_side_code, person_pitch_hand_code,
+#                                mlb_played_first, mlb_played_last, high_school
+#                                ), 'Data/bat_subset.csv')
+# write_csv(pitch_stats %>% select(fg_playerID, person_full_name, fWAR, pick_round,
+#                                pick_number, year, person_birth_state_province,
+#                                person_height, person_weight, home_state,
+#                                person_primary_position_abbreviation,
+#                                person_bat_side_code, person_pitch_hand_code,
+#                                mlb_played_first, mlb_played_last, high_school
+#                                ), 'Data/pitch_subset.csv')
