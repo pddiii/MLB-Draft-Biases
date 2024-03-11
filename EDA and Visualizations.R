@@ -6,37 +6,26 @@ library(mapdata)
 library(mapproj)
 library(reshape2)
 
-batters <- fread('Data/bat_subset.csv') # load subset batters data
-pitchers <- fread('Data/pitch_subset.csv') # load subset pitchers data
+draft_info <- fread('Data/clean_draft.csv')
 
 # Create a dataframe with state naming data
-state_data <- data.frame(names = state.name, abbreviation = state.abb)
+state_data <- data.frame(names = state.name, abbreviation = tolower(state.abb))
 
-# Add the state_data variables to the batters data
-batters <- 
-  batters %>% 
+draft_info <- 
+  draft_info %>% 
   left_join(state_data, by = c("home_state" = "abbreviation")) %>%
   select(-home_state) %>%
-  rename(home_state = names)
+  rename(home_state = names) %>% 
+  drop_na(home_state)
 
-# Add the state_data variables to the pitchers data
-pitchers <- 
-  pitchers %>% 
-  left_join(state_data, by = c("home_state" = "abbreviation")) %>%
-  select(-home_state) %>%
-  rename(home_state = names)
-
-# Create larger `players` data frame with all drafted players for EDA
-players <- bind_rows(batters, pitchers)
-
-# Create a frequency of the states of drafted players
-state_freq <- table(players$home_state)
+# Create a frequency of the states of drafted draft_info
+state_freq <- table(draft_info$home_state)
 
 # Convert the table to a datafram
 state_freq_df <- 
   data.frame(region = tolower(names(state_freq)), # convert states to lowercase
-             frequency = as.numeric(state_freq)) %>% # Players from each state
-  arrange(desc(frequency)) %>% # arrange in descending order of Players drafted
+             frequency = as.numeric(state_freq)) %>% # draft_info from each state
+  arrange(desc(frequency)) %>% # arrange in descending order of draft_info drafted
   filter(!(region %in% c("hawaii", "alaska"))) # View only contiguous U.S.
 
 # Mapping data for the United States map
@@ -51,7 +40,7 @@ map.df <-
 
 map.df <- map.df[order(map.df$order),] # make sure the dataframe is ordered
 
-# Create a heat map of the players drafted by home_state
+# Create a heat map of the draft_info drafted by home_state
 home_heat_map <- 
   ggplot(map.df, aes(x = longitude, y = latitude, group = group)) +
   geom_polygon(aes(fill=frequency)) +
@@ -61,27 +50,23 @@ home_heat_map <-
   labs(title = "Heat Map of Drafted Players") +
   theme(plot.title = element_text(hjust = 0.5))
 
-# Correlation matrix for `players` object
-cor_mat <-
-  players %>% 
-  select(-fg_playerID, -person_full_name) %>% 
-  mutate_if(is.character, as.factor) %>% # convert character to factor
-  mutate_if(is.factor, as.numeric) %>% # convert factor for cor() 
-  drop_na() %>% # remove the NA values
-  cor()
+first_10 <- 
+  draft_info %>% 
+  filter(as.integer(pick_round) %in% c(1:10)) %>% 
+  drop_na(high_school) %>% 
+  group_by(pick_round, high_school) %>% 
+  summarise(num_players = n()) %>% 
+  arrange(desc(num_players)) %>% 
+  ungroup() %>% 
+  mutate(pick_round = factor(pick_round, levels = c(1:10)),
+         high_school = as.factor(high_school))
 
-# Reshape the cor_mat for the correlation heat map
-melt_cor <- melt(cor_mat) %>% mutate(value = round(value, digits = 2))
+hs_by_round_by_plot <-
+  ggplot(first_10, aes(x = pick_round, y = num_players, fill = high_school)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(y = "Total Players", x = "Draft Round", 
+       title = "Number of Draftees by Pick and Round",
+       fill = "High School Player") +
+  theme_minimal()
 
-# Create the correlation heat map
-cor_map <- 
-  ggplot(melt_cor, aes(x = Var1, y = Var2, fill = value)) +
-  geom_tile(color = "white") +
-  scale_fill_gradient2(low = "blue", mid = "white", high = "red",
-                       name = "Correlation", midpoint = 0, 
-                       limit = c(-1, 1)) +
-  geom_text(aes(Var1, Var2, label = value), color = "black", size = 2.4) +
-  ggtitle("Correlation Heat Map") +
-  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),
-        axis.ticks.x = element_blank(), axis.title.y = element_blank(),
-        plot.title = element_text(hjust = 0.5), axis.ticks.y = element_blank()) 
+           
