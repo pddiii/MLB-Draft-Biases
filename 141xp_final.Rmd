@@ -1,0 +1,768 @@
+---
+title: |
+  | \vspace{5cm} Analyzing and Modeling MLB Draft Biases 
+  | using Wins Above Replacement
+subtitle: |
+  | \vspace{1cm} STATS 141XP Final Project
+author: |
+  | Peter DePaul, Anish Ravilla, Robin Lee
+  | Kevin Kim, Alan Wong, Honye Zheng
+date: "`r Sys.Date()`" 
+abstract: "[Abstrast here]"
+output: 
+  bookdown::pdf_document2:
+    fig_width: 12
+    toc: no
+    number_sections: true
+bibliography: references.bib
+linkcolor: blue
+urlcolor: blue
+citecolor: blue
+link-citations: yes
+---
+
+\newpage
+
+```{=latex}
+\hypersetup{linkcolor=black}
+\setcounter{tocdepth}{4}
+\tableofcontents
+\hypersetup{linkcolor=blue}
+```
+\newpage
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, cache = TRUE)
+#install.packages("bookdown")
+library(bookdown)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(corrplot)
+library(data.table)
+library(tidyverse)
+library(tidymodels)
+library(xgboost)
+library(doParallel)
+library(vip)
+library(caret)
+library(Boruta)
+library(randomForest)
+library(leaflet)
+library(maps)
+library(mapdata)
+library(mapproj)
+library(reshape2)
+#Load in datasets
+draft_info <- fread('Data/clean_draft.csv')
+draft_info <- 
+  draft_info %>% 
+  mutate(mlb_years = ifelse(mlb_played_first == 0 & mlb_played_last == 0, 0,
+                            (mlb_played_last - mlb_played_first) + 1 ) )
+## below _df objects contain data ONLY from players with at least 1 game in the
+## MLB
+bat_draft_df <- fread('Data/bat_subset.csv')
+pitch_draft_df <- fread('Data/pitch_subset.csv')
+```
+
+# Introduction
+
+In the world of professional baseball---specifically Major League Baseball (MLB)---the First Year Player Draft is a significant moment where teams meticulously evaluate and select amateur baseball players from high schools, colleges, and other amateur baseball clubs. However, even though the selection process should technically be based on objective and impartial reasoning, we are confident that various multifaceted biases subtly influence the decisions made by scouts and team executives [@caporale2013].
+
+## Background
+
+The baseball draft is a process in which the MLB's 30 professional baseball franchises gather together to draft amateur players, which mainly consist of players from the high school and college circuits [@staudohar2006]. Teams take turns picking players for their roster. Keep in mind that some players are drafted more than once. In this case, players are usually drafted out of high school, but they decide not to sign and instead play college baseball; they re-enter the draft after completing college.
+
+\smallskip
+
+Teams are awarded draft picks based on a **draft lottery**, with the teams that did not make the playoffs the previous year being entered into the lottery, and are given the opportunity to go first in the draft. The draft currently undergoes 20 rounds of selections, where each team gets to pick a player of interest for their roster. This draft, occurring in June, is also known as the **First-Team Player Draft**, where players who enter are typically high school or community college/four-year college graduates, and have never played for any professional baseball team [@garmon2012].
+
+## Variable Overview
+
+By implementing statistical data analysis, we seek to investigate how a scout's perception of talent and potential is influenced by a prospective player's attributes---such as their age, position, dominant hand, and educational background [@conforti2022]. Furthermore, in order to quantify the success of drafted players, we utilize their **Wins Above Replacement (WAR)**. As such, we hope to identify potential biases that influence when a player is drafted, and accurately determine whether or not these decisions are meritorious based on said player's future performance [@crotin2023].
+
+We accessed our data from Bill Petti's [BaseballR](https://billpetti.github.io/baseballr/) package:
+
+```{=tex}
+\begin{table}[ht]
+  \centering
+  \begin{tabular}{|c|c|c|}
+    \hline
+    Label & Description & Unit of Measure \\
+    \hline
+    fg$\_$playerID & Player ID & Numeric \\
+    Name & Player name & Character \\
+    fWAR & Wins Above Replacement & Numeric \\
+    pick$\_$round & Which round a player is picked & Numeric \\
+    pick$\_$number & Which number a player is picked & Numeric \\
+    year & Year a player is picked & Numeric \\
+    person$\_$birth$\_$state$\_$province & State or province the player is born & Character \\
+    person$\_$height & Height of player & Numeric \\
+    person$\_$weight & Weight of player & Numeric \\
+    person$\_$primary$\_$position$\_$abbreviation & Player's primary position & Character \\
+    person$\_$bat$\_$side$\_$code & Player's batting side (L/R) & Binary \\
+    person$\_$pitch$\_$hand$\_$code & Player's pitching hand (L/R) & Binary \\
+    mlb$\_$played$\_$first & Year of first MLB game & Numeric \\
+    mlb$\_$played$\_$last & Year of last MLB game & Numeric \\
+    high$\_$school & Player went to high school & Binary \\
+    home$\_$state & Player's home state & Character \\
+    \hline
+  \end{tabular}
+  \caption{Variable Overview}
+  \label{tab:example}
+\end{table}
+```
+
+# Exploratory Data Analysis
+
+## Relationship between drafting High School or College Players
+
+In order to analyze the relationship between draft round and high school status, we created a barplot showing
+the total number of draftees by round with colors denoting high school status when drafted. By analyzing this barplot [see Figure \@ref(fig:barplot)], we can see that as you get further into the first 10 rounds that siginficantly less high school players are drafted. 
+
+
+```{r barplot, fig.align='center', fig.cap="Frequency of High School Players by Round", warning=FALSE}
+# Create a dataframe with state naming data
+state_data <- data.frame(names = state.name, abbreviation = tolower(state.abb))
+
+draft_info <- 
+  draft_info %>% 
+  left_join(state_data, by = c("home_state" = "abbreviation")) %>%
+  select(-home_state) %>%
+  rename(home_state = names) %>% 
+  drop_na(home_state)
+# Subset the data to only players drafted in the first 10 rounds
+first_10 <- 
+  draft_info %>% 
+  filter(as.integer(pick_round) %in% c(1:10)) %>% 
+  drop_na(high_school) %>% 
+  group_by(pick_round, high_school) %>% 
+  summarise(num_players = n()) %>% 
+  arrange(desc(num_players)) %>% 
+  ungroup() %>% 
+  mutate(pick_round = factor(pick_round, levels = c(1:10)),
+         high_school = as.factor(ifelse(high_school == "Yes", "High School", 
+                                        "College")))
+
+hs_by_round_plot <-
+  ggplot(first_10, aes(x = pick_round, y = num_players, fill = high_school)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(y = "Total Players", x = "Draft Round", 
+       title = "Number of Draftees by Pick and Round",
+       fill = "High School Player") +
+  theme_minimal()
+hs_by_round_plot
+```
+
+
+## Histogram of Time to Play First MLB Game
+
+In order to analyze the number of years before a draftee played their first MLB game, we calculated the number of years between a player's first MLB game and the year they were drafted. 
+
+\bigskip
+
+```{r histograms, fig.cap = "Histograms of Years before First MLB Game"}
+#Created a new variable for each dataset that gives the number of years it took for a player 
+#to play their first MLB game
+bat_draft_df$DifferenceYearsDraftFGPlayed <- bat_draft_df$mlb_played_first - bat_draft_df$year
+pitch_draft_df$DifferenceYearsDraftFGPlayed <- pitch_draft_df$mlb_played_first - pitch_draft_df$year
+plot1 <- ggplot(bat_draft_df, aes(x = DifferenceYearsDraftFGPlayed)) +
+  geom_histogram(binwidth = 0.5, fill = "skyblue", color = "black", alpha = 0.8) +
+  labs(title = "Years for a Batting Draftee to Play Their First MLB Game", 
+       x = "# of Years", y = "Frequency") +
+  theme_minimal()
+
+plot2 <- ggplot(pitch_draft_df, aes(x = DifferenceYearsDraftFGPlayed)) +
+  geom_histogram(binwidth = 0.5, fill = "orange", color = "black", alpha = 0.8) +
+  labs(title = "Years for a Pitching Draftee to Play Their First MLB Game", 
+       x = "# of Years", y = "Frequency") + 
+  theme_minimal()
+grid.arrange(plot1, plot2, nrow = 1)
+```
+
+By analyzing these two histograms [see Figure \@ref(fig:histograms)], the number of years for a batting draftee to play their first MLB game is similar to the number of years for a pitching draftee. Both datasets are slightly right-skewed, with most people playing their first game between 3-5 years after their draft.
+
+## Relationship between Weight and Height
+
+We also investigated the relationship between weight and height for both batting and pitching draftees. By creating a scatterplot of both datasets, we not only mapped each individual person's attributes, but also plotted the mean weight/height and performed a simple linear regression to determine the overall trend.
+
+\bigskip
+
+```{r scatterplots, fig.cap = "Scatterplots of Mean vs. Weight", warning=FALSE}
+plot1 <- ggplot(bat_draft_df, aes(x = person_weight, y=person_height)) +
+  geom_point(fill="skyblue", shape=21, size=2, alpha = 0.8) +
+  geom_hline(yintercept = mean(bat_draft_df$person_height,na.rm=T), 
+             color = "red", linetype = "dashed", alpha = 0.8) + 
+  geom_vline(xintercept = mean(bat_draft_df$person_weight,na.rm=T), 
+             color = "blue", linetype = "dashed", alpha = 0.8) +
+  geom_text(aes(x = mean(bat_draft_df$person_weight,na.rm=T) + 1, 
+                y = mean(bat_draft_df$person_height,na.rm=T), 
+                label = paste("Mean Weight")), 
+            color = "blue", hjust = 0, vjust = -15, alpha = 0.8) +  
+  geom_text(aes(x = mean(bat_draft_df$person_weight,na.rm=T), 
+                y = mean(bat_draft_df$person_height,na.rm=T) - 1, 
+                label = paste("Mean Height")), 
+            color = "red", hjust = -3, vjust = 0, alpha = 0.8) +  
+  geom_smooth(method = "lm", se = FALSE, color = "black", alpha = 0.8) +
+  labs(title = "Weight vs. Height (Batters)", 
+       x = "Draftee Weight", y = "Draftee Height") +
+  theme_minimal()
+
+plot2 <- ggplot(pitch_draft_df, aes(x = person_weight, y=person_height)) +
+  geom_point(fill="orange", shape=21, size=2, alpha = 0.8) +
+  geom_hline(yintercept = mean(pitch_draft_df$person_height,na.rm=T), 
+             color = "red", linetype = "dashed", alpha = 0.8) + 
+  geom_vline(xintercept = mean(pitch_draft_df$person_weight,na.rm=T), 
+             color = "blue", linetype = "dashed", alpha = 0.8) +
+  geom_text(aes(x = mean(pitch_draft_df$person_weight,na.rm=T) + 1, 
+                y = mean(pitch_draft_df$person_height,na.rm=T), 
+                label = paste("Mean Weight")), 
+            color = "blue", hjust = 0, vjust = -16, alpha = 0.8) +  
+  geom_text(aes(x = mean(pitch_draft_df$person_weight,na.rm=T), 
+                y = mean(pitch_draft_df$person_height,na.rm=T) - 1, 
+                label = paste("Mean Height")), 
+            color = "red", hjust = -2.8, vjust = 0, alpha = 0.8) +  
+  geom_smooth(method = "lm", se = FALSE, color = "black", alpha = 0.8) +
+  labs(title = "Weight vs. Height (Pitchers)", 
+       x = "Draftee Weight", y = "Draftee Height") +
+  theme_minimal()
+
+grid.arrange(plot1, plot2, nrow = 1)
+```
+
+Comparing these two plots [see Figure \@ref(fig:scatterplots)], the mean weight for batting draftees is slightly smaller than the mean weight for pitching draftees. Likewise, the mean height of batting draftees is also slightly smaller than the mean height of their pitching counterparts. We can expect the average batting draftee to be slightly shorter and lighter than the average pitching draftee.
+
+## Correlation Heatmap
+
+The correlation between pick round, year, height, weight, and WAR for both player categories is:
+
+```{r correlation,warning=FALSE,fig.align='center', fig.cap = "Correlation Plots for Pitching and Batting", fig.height=3.5}
+par(mfrow=c(1,2))
+# %>% full_join(pitch_draft_df)
+bat_draft_df1 <- bat_draft_df %>%
+  mutate(pick_round=as.numeric(pick_round)) %>% 
+  drop_na()
+correlation_matrix <- cor(bat_draft_df1[, c(4,5,7,9,10)]) 
+corrplot(correlation_matrix, method = "color")
+title("Correlation Plot (Batting)",line = 3,adj=0)
+#title(sub = "Plot 5: Correlation Plot of Batters", line=4.5)
+
+pitch_draft_df1 <- pitch_draft_df %>%
+  mutate(pick_round=as.numeric(pick_round)) %>% 
+  drop_na()
+correlation_matrix <- cor(pitch_draft_df1[, c(4,5,7,9,10)]) 
+corrplot(correlation_matrix, method = "color")
+title("Correlation Plot (Pitching)",line = 3,adj=0)
+#title(sub = "Plot 6: Correlation Plot of Pitchers", line=4.5)
+```
+
+As expected [see Figure \@ref(fig:correlation)], there is a strong correlation between a person's height and their weight. For pitching, there is a small positive correlation between a player's height and their WAR; for batting, there is a negative correlation between a player's height and their WAR. We see there is no correlation between a batting draftees' weight and WAR, but there is a slight positive correlation for a pitching draftee.
+
+## Home State Frequency Heatmap
+
+In order to investigate which state produces the most draftees, we construct a frequency heatmap:
+
+```{r statemap,fig.height=3, fig.width=6.5, fig.align='center', fig.cap = "Frequency Heatmap of Players per State"}
+
+# Create a frequency of the states of drafted draft_info
+state_freq <- table(draft_info$home_state)
+
+# Convert the table to a datafram
+state_freq_df <- 
+  data.frame(region = tolower(names(state_freq)), # convert states to lowercase
+             frequency = as.numeric(state_freq)) %>% # draft_info from each state
+  arrange(desc(frequency)) %>% # arrange in descending order of draft_info drafted
+  filter(!(region %in% c("hawaii", "alaska"))) # View only contiguous U.S.
+
+# Mapping data for the United States map
+states <- map_data("state")
+
+# Create a dataframe with the coordinates, and the frequencies in each state
+map.df <- 
+  merge(states, state_freq_df, by="region", all.x=T) %>% 
+  rename(longitude = long, latitude = lat) %>% 
+  select(-subregion) %>% 
+  filter(region %in% state_freq_df$region)
+
+map.df <- map.df[order(map.df$order),] # make sure the dataframe is ordered
+
+# Create a heat map of the draft_info drafted by home_state
+home_heat_map <- 
+  ggplot(map.df, aes(x = longitude, y = latitude, group = group)) +
+  geom_polygon(aes(fill=frequency)) +
+  geom_path() +
+  scale_fill_gradient(low = "white", high = "darkred", 
+                      name = "Players Drafted") +
+  labs(title = "Heat Map of Drafted Players") +
+  theme(plot.title = element_text(hjust = 0.5))
+home_heat_map
+```
+
+From our state map [see Figure \@ref(fig:statemap)], we can see that most players drafted are originally from California, with Texas and Florida as the other two primary home states. We can attribute this trend to weather, as these states tend to have higher temperatures and little-to-no snow compared to East, Midwest, and Northwest.
+
+## Relationship between Time in MLB and WAR
+
+Exploring how the length of player's career affects their WAR, we construct the following scatterplot:
+
+\bigskip
+
+```{r mlbwar, fig.cap = "Relationship between Time Played in MLB vs. WAR", fig.height=3}
+players <- bind_rows(bat_draft_df, pitch_draft_df) %>% 
+  arrange(desc(fWAR)) %>% 
+  distinct(person_id, .keep_all = T)
+players$time_played <- (players$mlb_played_last - players$mlb_played_first) + 1
+ggplot(players, aes(x = time_played, y=fWAR)) +
+  geom_point(fill="white", shape=21, size=2, alpha = 0.8) +
+  geom_hline(yintercept = mean(players$fWAR,na.rm=T), 
+             color = "red", linetype = "dashed", alpha = 0.8) + 
+  geom_vline(xintercept = mean(players$time_played,na.rm=T), 
+             color = "blue", linetype = "dashed", alpha = 0.8) +
+  geom_text(aes(x = mean(players$time_played,na.rm=T)+0.5, 
+                y = mean(players$fWAR,na.rm=T)+40, 
+                label = paste("Mean Time")), 
+            color = "blue", hjust = 0, vjust = -10, alpha = 0.8) +  
+  geom_text(aes(x = mean(players$time_played,na.rm=T)+8, 
+                y = mean(players$fWAR,na.rm=T)+5, 
+                label = paste("Mean WAR")), 
+            color = "red", hjust = -4, vjust = 0, alpha = 0.8) +
+  labs(title = "Total Time in MLB vs. WAR", 
+       x = "Total Time Played in MLB", y = "Wins Above Replacement") +
+  theme_minimal()
+```
+
+By comparing each player's total time played in MLB and WAR [see Figure \@ref(fig:mlbwar)], we can see that the length of a player's career does not always equate to a high WAR. However, there does seem to be an upward trend, which makes sense as we expect a player to win more as they play longer.
+
+\newpage
+
+# Modeling and Analysis
+
+## Who is Successful?
+
+### How often do Draftees make it to the MLB?
+
+
+
+
+```{r piechart, fig.cap="Pie Chart of Draftees MLB Status"}
+# load in full batters draft data
+bat_draft <- 
+  fread('Data/batters/batters_full_draft.csv') %>%
+  select(fg_playerID, person_id, person_full_name, fWAR, pick_round,
+         pick_number, year, person_birth_state_province,
+         person_height, person_weight, home_state,
+         person_primary_position_abbreviation,
+         person_bat_side_code, person_pitch_hand_code,
+         mlb_played_first, mlb_played_last, high_school,
+         birth_year)
+# load in full pitchers draft data
+pitch_draft <- 
+  fread('Data/pitchers/pitchers_full_draft.csv') %>%
+  select(fg_playerID, person_id, person_full_name, fWAR, pick_round,
+         pick_number, year, person_birth_state_province,
+         person_height, person_weight, home_state,
+         person_primary_position_abbreviation,
+         person_bat_side_code, person_pitch_hand_code,
+         mlb_played_first, mlb_played_last, high_school, birth_year
+         )
+
+# bind them into players data
+players <- 
+  bind_rows(pitch_draft, bat_draft) %>% 
+  mutate(pick_round = as.numeric(pick_round)) %>% 
+  filter(pick_round %in% c(1:100)) %>% 
+  group_by(person_id) %>% 
+  # Choose the player's most recent draft year (if drafted more than once)
+  dplyr::slice(which.max(year)) %>% 
+  ungroup() %>% 
+  # Add these classifier variables for data table presentation
+  mutate(less_five_war = ifelse(fWAR < 5, 1, 0),
+         five_to_10 = ifelse(fWAR >= 5 & fWAR < 10, 1, 0),
+         ten_to_15 = ifelse(fWAR >= 10 & fWAR < 15, 1, 0),
+         fifteen_to_20 = ifelse(fWAR >= 15 & fWAR < 20, 1, 0),
+         twenty_to_25 = ifelse(fWAR >= 20 & fWAR <= 25, 1, 0),
+         more_than_25 = ifelse(fWAR > 25, 1, 0),
+         yrs_before_debut = mlb_played_first - year,
+         time_played = (mlb_played_last - mlb_played_first) + 1,
+         debut_age = mlb_played_first - birth_year,
+         draft_age = debut_age - yrs_before_debut) %>% 
+  arrange(desc(fWAR))
+
+# fWAR info by draft year
+fwar_info_by_year <-
+  players %>% 
+  group_by(year) %>% 
+  summarise(`Less than 5 fWAR` = round(sum(less_five_war) / n() * 100, 2),
+            `5-10 fWAR` = round(sum(five_to_10) / n() * 100, 2),
+            `10-15 fWAR` = round(sum(ten_to_15) / n() * 100, 2),
+            `15-20 fWAR` = round(sum(fifteen_to_20) / n() * 100, 2),
+            `20-25 fWAR` = round(sum(twenty_to_25) / n() * 100, 2),
+            `Greater than 25 fWAR` = round(sum(more_than_25) / n() * 100, 2)) %>% 
+  mutate(`Less than 5 fWAR` = paste(`Less than 5 fWAR`, "%", sep = " "),
+         `5-10 fWAR` = paste(`5-10 fWAR`, "%", sep = " "),
+         `10-15 fWAR` = paste(`10-15 fWAR`, "%", sep = " "),
+         `15-20 fWAR` = paste(`15-20 fWAR`, "%", sep = " "),
+         `20-25 fWAR` = paste(`20-25 fWAR`, "%", sep = " "),
+         `Greater than 25 fWAR` = paste(`Greater than 25 fWAR`, "%", sep = " "))
+
+# round_numbers <- 
+#   as.numeric(unique(players$pick_round[which(as.numeric(players$pick_round) %in% c(1:100))])) %>% 
+#   sort()
+
+# # fWAR info summarised by draft round
+# fwar_info_by_round <- 
+#   players %>% 
+#   mutate(pick_round = factor(pick_round, levels = round_numbers)) %>% 
+#   group_by(pick_round) %>% 
+#   summarise(`Less than 5 fWAR` = round(sum(less_five_war) / n() * 100, 2),
+#             `5-10 fWAR` = round(sum(five_to_10) / n() * 100, 2),
+#             `10-15 fWAR` = round(sum(ten_to_15) / n() * 100, 2),
+#             `15-20 fWAR` = round(sum(fifteen_to_20) / n() * 100, 2),
+#             `20-25 fWAR` = round(sum(twenty_to_25) / n() * 100, 2),
+#             `Greater than 25 fWAR` = round(sum(more_than_25) / n() * 100, 2)) %>% 
+#   mutate(`Less than 5 fWAR` = paste(`Less than 5 fWAR`, "%", sep = " "),
+#          `5-10 fWAR` = paste(`5-10 fWAR`, "%", sep = " "),
+#          `10-15 fWAR` = paste(`10-15 fWAR`, "%", sep = " "),
+#          `15-20 fWAR` = paste(`15-20 fWAR`, "%", sep = " "),
+#          `20-25 fWAR` = paste(`20-25 fWAR`, "%", sep = " "),
+#          `Greater than 25 fWAR` = paste(`Greater than 25 fWAR`, "%", sep = " "))
+
+# Reload in the untouched draft_info
+draft_info <- fread('Data/draft_data.csv') %>% 
+  mutate(mlb_played_first = year(person_mlb_debut_date),
+         high_school = ifelse(str_detect(school_name, "\\sHS") == TRUE, "Yes", 
+                              "No"),
+         person_height = str_replace_all(person_height, "\"$", "")) %>% 
+  replace_na(list(home_state = "None", mlb_played_first = 0)) %>% 
+  mutate(mlb_played_last = ifelse(mlb_played_first == 0, 0, 
+                           year(person_last_played_date)),
+         made_mlb = ifelse(mlb_played_first == 0, 0, 1)) %>% 
+  replace_na(list(mlb_played_last = 2023)) %>% 
+  # Remove variables of no interest
+  select(-person_link, -c(person_use_name:person_gender),
+         -c(person_name_slug:person_init_last_name), 
+         -c(person_name_matrilineal:home_city), -c(home_country, school_state),
+         -c(person_xref_ids:person_death_country), -person_name_title, -team_id,
+         -person_name_suffix, -c(team_link:team_spring_league_abbreviation), 
+         -headshot_link, home_state)
+
+# Full Draft information breakdown by draft year
+mlb_info <- 
+  draft_info %>% 
+  # mutate to a factor for sorting purposes
+  mutate(pick_round = as.numeric(draft_info$pick_round))  %>% 
+  filter(pick_round %in% c(1:100)) %>% 
+  group_by(person_id) %>% 
+  dplyr::slice(which.max(year)) %>% 
+  ungroup() %>%  
+  summarise(`Drafted` = n(), # total number of draftees
+            `Made MLB` = sum(made_mlb), # number of draftees to make MLB
+            # percent of players to make the MLB
+            `% Made MLB` = round( (`Made MLB` / `Drafted`) * 100, 2),
+            # percent of players to NOT make the MLB
+            `% Missed MLB` = round((100 - `% Made MLB`), 2)) %>% 
+  pivot_longer(cols = c( `Made MLB`,  `Drafted`), names_to = "Category", 
+               values_to = "Total Players")
+
+pie_chart <-
+  ggplot(data = mlb_info, aes(x = "", y = `Total Players`, fill = Category)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  labs(title = "Pie Chart of MLB Status")
+pie_chart
+
+# Total fWAR by draft class (year)
+total_fwar_by_year <- 
+  players %>% 
+  group_by(year) %>% 
+  summarise(total_fWAR = sum(fWAR)) %>% 
+  arrange(desc(total_fWAR)) %>% 
+  mutate(rank = c(1:59) )
+
+fwar_levels <- 
+  total_fwar_by_year %>% 
+  slice_head(n = 10) %>% 
+  select(year) %>%  
+  unlist() %>% 
+  as.character()
+```
+
+### What is the Best Draft Class in MLB History?
+
+We can see from the barplot that the 1965, 1985, and 2002 draft classes are highly successful with each garnering over 900 total fWAR across the draft class. 1965 included the likes of Johnny Bench, Nolan Ryan, and Tom Seaver. Meanwhile 1985 includes Barry Bonds, John Smoltz, and Randy Johnson. 2002 includes Zack Greinke, Prince Fielder, and Cole Hamels. The thing these drafts share in common is that they have an abundance of talent, both in terms of Hall of Famers and depth.
+
+
+```{r draftclassfWAR, fig.cap="Best Draft Classes by fWAR"}
+# Plot of top 10 draft classes by total fWAR
+draft_class_fwar <-
+  ggplot(total_fwar_by_year %>% 
+         slice_head(n = 10), 
+       aes(x = factor(rank, levels = c(1:10), labels = fwar_levels), 
+           y = total_fWAR
+           )
+       ) + 
+  geom_bar(stat = "identity", fill = "deepskyblue") +
+  labs(x = "Draft Class", y = "Total fWAR", 
+       title = "Top 10 Draft Classes by Total fWAR") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_text(aes(label = total_fWAR, vjust = -0.5))
+draft_class_fwar
+```
+
+
+### What Positions have been Successful?
+
+We are able t osee that the positions which are most successful have often been outfielders (CF or LF), First Basemen (1B), or Third Basemen (3B). This can be explained by First Basemen possessing game changing amount of power hitting, and the high level fielding roles of outfield and third base.
+
+
+```{r positionfWAR, fig.cap="Best Draft Classes by Year and Position"}
+total_fwar_by_pos_and_year <- 
+  players %>% 
+  filter(person_primary_position_abbreviation != "P") %>% 
+  group_by(year, person_primary_position_abbreviation) %>% 
+  summarise(total_fWAR = sum(fWAR)) %>% 
+  arrange(desc(total_fWAR)) %>% 
+  ungroup() %>% 
+  mutate(label = paste(year, person_primary_position_abbreviation, sep = "/"),
+         rank = c(1:548))
+
+# total_fwar_by_pos_and_year_pitcher <- 
+#   players %>% 
+#   filter(person_primary_position_abbreviation == "P") %>% 
+#   group_by(year, person_primary_position_abbreviation) %>% 
+#   summarise(total_fWAR = sum(fWAR)) %>% 
+#   arrange(desc(total_fWAR)) %>% 
+#   mutate(label = paste(year))
+
+pos_class_labels <- 
+  total_fwar_by_pos_and_year %>% 
+  slice_head(n = 10) %>% 
+  select(label) %>% 
+  unlist() %>% 
+  as.character()
+
+# Barplot of total top 10 total fWAR Draft Class/Position Combination
+pos_class_fwar <- 
+  ggplot(total_fwar_by_pos_and_year %>% 
+         slice_head(n = 10), 
+       aes(x = factor(rank, levels = c(1:10), labels = pos_class_labels), 
+           y = total_fWAR
+           )
+       ) + 
+  geom_bar(stat = "identity", fill = "deepskyblue") +
+  labs(x = "Draft Class/Position", y = "Total fWAR", 
+       title = "Top 10 Position Classes by Total fWAR") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_text(aes(label = total_fWAR, vjust = -0.5))
+
+pos_class_fwar
+```
+
+
+## Possible Model
+
+By defining each player's WAR as the definition of success,
+
+```{r model}
+round_numbers <- 
+  as.numeric(unique(players$pick_round[which(as.numeric(players$pick_round) %in% c(1:100))])) %>% 
+  sort()
+
+## Split the data into training and testing datasets
+data <- players %>% 
+  filter(home_state %in% tolower(state.abb)) %>% 
+  select(-year, -mlb_played_first, -mlb_played_last, 
+         -c(less_five_war:more_than_25), -birth_year) %>% 
+  mutate(birth_state = tolower(person_birth_state_province),
+         position = person_primary_position_abbreviation,
+         .keep = "unused") %>%
+  mutate(fWAR_class = ifelse(fWAR >= 25, "Greater than 25 fWAR",
+                             ifelse(fWAR >= 20 & fWAR < 25, "20-25 fWAR", 
+                             ifelse(fWAR >= 15 & fWAR < 20, "15-20 fWAR", 
+                                    ifelse(fWAR >= 10 & fWAR < 15, 
+                                           "10-15 fWAR",
+                                           ifelse(fWAR >= 5 & fWAR < 10, 
+                                                  "5-10 fWAR",
+                                           "Less than 5 fWAR") ) ) ) ),
+         pick_round = factor(pick_round, levels = round_numbers),
+         top_pick = factor(ifelse(pick_number == 1, 1, 0)),
+         top_10 = factor(ifelse(pick_number <= 10, 1, 0)),
+         top_25 = factor(ifelse(pick_number <= 25, 1, 0)),
+         top_50 = factor(ifelse(pick_number <= 50, 1, 0)),
+         top_100 = factor(ifelse(pick_number <= 100, 1, 0))) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  drop_na()
+
+
+# ## person_bat_side code tentative (will include anyways)
+# ## All other 17 predictors confirmed important
+# ## 29.77822 mins
+# set.seed(1)
+# boruta <-
+#   Boruta(fWAR_class ~ pick_round + pick_number + person_height + person_weight +
+#            home_state + person_bat_side_code + person_pitch_hand_code +
+#            high_school + yrs_before_debut + debut_age + draft_age +
+#            birth_state + position + top_pick + top_10 + top_25 + top_50 + 
+#            top_100,
+#          maxRuns = 250,
+#          data = data)
+# 
+# # Extract the feature importance attributes
+# boruta_feat_imp <- data.frame(attStats(boruta))
+# boruta_feat_imp <- boruta_feat_imp %>%
+#   arrange(desc(meanImp)) %>%
+#   select(-normHits)
+# # Select only the confirmed features of the tested variables
+# boruta_feat <- getSelectedAttributes(boruta)
+# paste0(boruta_feat, collapse = " + ")
+
+set.seed(1)
+data_split <- initial_split(data, prop = 0.70,
+                            strata = position)
+train <- training(data_split)
+test <- testing(data_split)
+
+# Create the fWAR classification Boosted Decision Tree
+boost_model <- 
+  boost_tree(mtry = 17,
+             trees = 98,
+             min_n = 8,
+             tree_depth = 9,
+             learn_rate = .0988522125906778,
+             loss_reduction = 0.000000733510996319349,
+             sample_size = c(1),
+             stop_iter = c(5)) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+
+### Used for tuning parameters
+# boost_model <- 
+#   boost_tree(mtry = tune(),
+#              trees = tune(),
+#              min_n = tune(),
+#              tree_depth = tune(),
+#              learn_rate = tune(),
+#              loss_reduction = tune(),
+#              sample_size = c(1),
+#              stop_iter = c(5)) %>% 
+#   set_engine("xgboost") %>% 
+#   set_mode("classification")
+
+# Create the + Recipe
+boost_recipe <- 
+  recipe(fWAR_class ~ pick_round + pick_number + person_height + person_weight +
+           home_state + person_bat_side_code + person_pitch_hand_code +
+           high_school + yrs_before_debut + debut_age + draft_age +
+           birth_state + position + top_pick + top_10 + top_25 + top_50 + 
+           top_100,
+         data = train) %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>% 
+  step_zv(all_predictors()) %>% 
+  step_normalize(all_numeric_predictors())
+
+# + Workflow
+boost_wf <- 
+  workflow() %>% 
+  add_recipe(boost_recipe) %>% 
+  add_model(boost_model)
+
+set.seed(1)
+boost_folds <- vfold_cv(train, v = 10) # Folds for cross-validation
+
+# # Create a random grid of parameters for model tuning
+# boost_grid <- grid_latin_hypercube(
+#   mtry(range = c(5, 18)),
+#   trees(range = c(25, 150)),
+#   min_n(range = c(5, 15)),
+#   tree_depth(range = c(5, 15)),
+#   learn_rate(),
+#   loss_reduction(),
+#   size = 1500
+# )
+
+# Begin Parallel Processing
+all_cores <- parallel::detectCores(logical = FALSE)
+cl <- makePSOCKcluster(all_cores)
+registerDoParallel(cl)
+
+
+class_metrics <- metric_set(accuracy, roc_auc, f_meas)
+
+# # Perform the tuning process
+# boost_tune_res <- tune_grid(
+#   boost_wf,
+#   resamples = boost_folds,
+#   grid = boost_grid,
+#   control = control_grid(save_pred = TRUE),
+#   metrics = class_metrics
+# )
+
+# best_parameters <- select_best(boost_tune_res, "accuracy")[, 1:6]
+
+# # Update the + Model to the parameters with the "best" (lowest) RMSE
+# boost_model <- 
+#   finalize_model(boost_model, parameters = best_parameters)
+# 
+# 
+# # Update the + Workflow
+# boost_wf <- 
+#   workflow() %>% 
+#   add_recipe(boost_recipe) %>% 
+#   add_model(boost_model)
+
+# 10-fold Cross Validation
+set.seed(1)
+boost_crossval <-
+  boost_wf %>% 
+  tune::fit_resamples(resamples = boost_folds,
+                metrics = class_metrics)
+
+# Cross Validation Metrics
+boost_metrics <- 
+  boost_crossval %>% 
+  collect_metrics()
+
+
+# Fit the + Workflow to the Fastball Training Data
+set.seed(1)
+boost_fit <- 
+  boost_wf %>% 
+  fit(data = train)
+
+# Make Predictions using the fitted + Model on the Testing Data
+boost_predictions <- 
+  boost_fit %>% 
+  predict(test) %>%  
+  cbind(test$fWAR_class)
+
+# Variable Importance Plot
+vip_plot <- 
+  boost_fit %>% 
+  extract_fit_parsnip() %>% 
+  vip(geom = "point") +
+  labs(title = "Variable Importance Plot")
+
+stopCluster(cl)
+```
+
+\newpage
+
+# Results
+
+```{r}
+
+```
+
+\newpage
+
+# Conclusion
+
+```{r}
+
+```
+
+\newpage
+
+# Bibliography
