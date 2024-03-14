@@ -39,3 +39,4 @@ lattice
 caret
 Boruta
 randomForest
+kableExtra
