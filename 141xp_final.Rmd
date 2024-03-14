@@ -48,6 +48,7 @@ library(vip)
 library(caret)
 library(Boruta)
 library(randomForest)
+library(kableExtra)
 library(leaflet)
 library(maps)
 library(mapdata)
@@ -112,14 +113,11 @@ We accessed our data from Bill Petti's [BaseballR](https://billpetti.github.io/b
   \label{tab:example}
 \end{table}
 ```
-
 # Exploratory Data Analysis
 
 ## Relationship between drafting High School or College Players
 
-In order to analyze the relationship between draft round and high school status, we created a barplot showing
-the total number of draftees by round with colors denoting high school status when drafted. By analyzing this barplot [see Figure \@ref(fig:barplot)], we can see that as you get further into the first 10 rounds that siginficantly less high school players are drafted. 
-
+In order to analyze the relationship between draft round and high school status, we created a barplot showing the total number of draftees by round with colors denoting high school status when drafted. By analyzing this barplot [see Figure \@ref(fig:barplot)], we can see that as you get further into the first 10 rounds that siginficantly less high school players are drafted.
 
 ```{r barplot, fig.align='center', fig.cap="Frequency of High School Players by Round", warning=FALSE}
 # Create a dataframe with state naming data
@@ -154,10 +152,9 @@ hs_by_round_plot <-
 hs_by_round_plot
 ```
 
-
 ## Histogram of Time to Play First MLB Game
 
-In order to analyze the number of years before a draftee played their first MLB game, we calculated the number of years between a player's first MLB game and the year they were drafted. 
+In order to analyze the number of years before a draftee played their first MLB game, we calculated the number of years between a player's first MLB game and the year they were drafted.
 
 \bigskip
 
@@ -298,7 +295,7 @@ home_heat_map <-
 home_heat_map
 ```
 
-From our state map [see Figure \@ref(fig:statemap)], we can see that most players drafted are originally from California, with Texas and Florida as the other two primary home states. We can attribute this trend to weather, as these states tend to have higher temperatures and little-to-no snow compared to East, Midwest, and Northwest.
+From our state map [see Figure \@ref(fig:statemap)], we can see that most players drafted are originally from California, with Texas and Florida as the other two primary home states. We can attribute this trend to weather, as these states tend to have higher temperatures and little-to-no snow compared to East, Midwest, and Northwest, which allows people to play baseball all year long and for youth leagues to have more flexibility with their seasons. These states also have relatively large populations, which could easily explain why the most draftees emerge from these states.
 
 ## Relationship between Time in MLB and WAR
 
@@ -339,9 +336,6 @@ By comparing each player's total time played in MLB and WAR [see Figure \@ref(fi
 ## Who is Successful?
 
 ### How often do Draftees make it to the MLB?
-
-
-
 
 ```{r piechart, fig.cap="Pie Chart of Draftees MLB Status"}
 # load in full batters draft data
@@ -459,16 +453,20 @@ mlb_info <-
             # percent of players to make the MLB
             `% Made MLB` = round( (`Made MLB` / `Drafted`) * 100, 2),
             # percent of players to NOT make the MLB
-            `% Missed MLB` = round((100 - `% Made MLB`), 2)) %>% 
+            `% Missed MLB` = round((100 - `% Made MLB`), 2))
+
+mlb_info_long <- 
+  mlb_info %>% 
   pivot_longer(cols = c( `Made MLB`,  `Drafted`), names_to = "Category", 
                values_to = "Total Players")
 
 pie_chart <-
-  ggplot(data = mlb_info, aes(x = "", y = `Total Players`, fill = Category)) +
+  ggplot(data = mlb_info_long, aes(x = "", y = `Total Players`, fill = Category)) +
   geom_bar(stat = "identity", width = 1) +
   coord_polar("y", start = 0) +
   theme_void() +
-  labs(title = "Pie Chart of MLB Status")
+  labs(title = "Pie Chart of MLB Status") + 
+  geom_text(aes(label = c(paste(mlb_info$`% Made MLB`, "%", sep = ""), paste(mlb_info$`% Missed MLB`, "%", sep = "")), hjust = 0.75, vjust = -1), size = 5.3)
 pie_chart
 
 # Total fWAR by draft class (year)
@@ -491,7 +489,6 @@ fwar_levels <-
 
 We can see from the barplot that the 1965, 1985, and 2002 draft classes are highly successful with each garnering over 900 total fWAR across the draft class. 1965 included the likes of Johnny Bench, Nolan Ryan, and Tom Seaver. Meanwhile 1985 includes Barry Bonds, John Smoltz, and Randy Johnson. 2002 includes Zack Greinke, Prince Fielder, and Cole Hamels. The thing these drafts share in common is that they have an abundance of talent, both in terms of Hall of Famers and depth.
 
-
 ```{r draftclassfWAR, fig.cap="Best Draft Classes by fWAR"}
 # Plot of top 10 draft classes by total fWAR
 draft_class_fwar <-
@@ -510,11 +507,9 @@ draft_class_fwar <-
 draft_class_fwar
 ```
 
-
 ### What Positions have been Successful?
 
 We are able t osee that the positions which are most successful have often been outfielders (CF or LF), First Basemen (1B), or Third Basemen (3B). This can be explained by First Basemen possessing game changing amount of power hitting, and the high level fielding roles of outfield and third base.
-
 
 ```{r positionfWAR, fig.cap="Best Draft Classes by Year and Position"}
 total_fwar_by_pos_and_year <- 
@@ -560,10 +555,51 @@ pos_class_fwar <-
 pos_class_fwar
 ```
 
+## Model
 
-## Possible Model
+By defining each player's fWAR as the definition of success, we aimed to create a model which predicts a players level of success only from their physical characteristics, their demographics, and the characteristics of their draft position.
 
-By defining each player's WAR as the definition of success,
+### Feature Engineering
+
+We thought it would be difficult to predict a player's specific fWAR numerical value without any informational statistics of their playing careers. In order to make this a simpler process, we came up with the idea of creating a categorical (factor) variable named `fWAR_class` with 6 levels:
+
+-   Greater than 25 fWAR
+-   20-25 fWAR
+-   15-20 fWAR
+-   10-15 fWAR
+-   5-10 fWAR
+-   Less than 5 fWAR
+
+Additionally to assess the impact of where in the draft a player is picked we added binary variables indicating if the player was any of the following:
+
+-   Player was the #1 overall pick in the draft (`top_pick`)
+-   Player was a top 10 overall pick in the draft (`top_10`)
+-   Player was a top 25 overall pick in the draft (`top_25`)
+-   Player was a top 50 overall pick in the draft (`top_50`)
+-   Player was a top 100 overall pick in the draft (`top_100`)
+
+We then went further to add a few more descriptive characteristics of the draftees including:
+
+- `yrs_before_debut` which is the number of years before a player debuts in the MLB
+- `draft_age` which is a player's age when they are drafted into the MLB
+- `debut_age` which is a player's age when they made their MLB debut
+
+### Feature Selection
+
+Following our feature engineering process to ensure we're not using unnecessary variables in our modeling process we employed the Boruta feature selection algorithm. The Boruta algorithm is used to confirm the importance of variables using RandomForest methods based upon a given formula. Our Boruta process confirmed all predictive features in the data set were important.
+
+### Model Creation
+
+For our model we decided to utilize the XGBoost library in order to create a gradient boosted decision tree for predicting `fWAR_class`. We utilized the tidymodels library as well in order for simplifying our workflow and recipe process. 
+
+We split our overall data into a training (70\%) and testing (30\%) data sets stratified by player position.  
+
+To take it a step further we utilized the hyperparameter tuning process for our boosted decision tree, in order to find the ideal parameters for our data.
+
+As part of our model process we checked to ensure no variables had zero variance, added dummy variables for all categories which are not already encoded as such, and made sure to normalize all numeric predictors so they are on a similar scale. These choices were done in order to minimize the variance caused by outliers and differently categorized variables.
+
+We performed our tuning process, updated the hyperparameters to the ones with the highest classified "accuracy" measure. From there, we performed 10-fold cross-validation on the model to ensure the performance. 
+
 
 ```{r model}
 round_numbers <- 
@@ -578,14 +614,17 @@ data <- players %>%
   mutate(birth_state = tolower(person_birth_state_province),
          position = person_primary_position_abbreviation,
          .keep = "unused") %>%
-  mutate(fWAR_class = ifelse(fWAR >= 25, "Greater than 25 fWAR",
+  mutate(fWAR_class = factor(ifelse(fWAR >= 25, "Greater than 25 fWAR",
                              ifelse(fWAR >= 20 & fWAR < 25, "20-25 fWAR", 
                              ifelse(fWAR >= 15 & fWAR < 20, "15-20 fWAR", 
                                     ifelse(fWAR >= 10 & fWAR < 15, 
                                            "10-15 fWAR",
                                            ifelse(fWAR >= 5 & fWAR < 10, 
                                                   "5-10 fWAR",
-                                           "Less than 5 fWAR") ) ) ) ),
+                                           "Less than 5 fWAR") ) ) ) ), 
+                             levels = c("Greater than 25 fWAR", "20-25 fWAR",
+                                        "15-20 fWAR", "10-15 fWAR", "5-10 fWAR",
+                                        "Less than 5 fWAR")),
          pick_round = factor(pick_round, levels = round_numbers),
          top_pick = factor(ifelse(pick_number == 1, 1, 0)),
          top_10 = factor(ifelse(pick_number <= 10, 1, 0)),
@@ -735,7 +774,12 @@ boost_fit <-
 boost_predictions <- 
   boost_fit %>% 
   predict(test) %>%  
-  cbind(test$fWAR_class)
+  rename(estimate = .pred_class) %>% 
+  cbind(test$fWAR_class) %>% 
+  rename(truth = `test$fWAR_class`)
+
+conf_mat <-
+  confusionMatrix(boost_predictions$estimate, boost_predictions$truth)
 
 # Variable Importance Plot
 vip_plot <- 
@@ -743,25 +787,77 @@ vip_plot <-
   extract_fit_parsnip() %>% 
   vip(geom = "point") +
   labs(title = "Variable Importance Plot")
-
-stopCluster(cl)
 ```
-
-\newpage
 
 # Results
 
-```{r}
+## Cross-Validation Metrics
 
+```{r crossvalidation}
+boost_metrics %>% 
+  select(-.config) %>% 
+  rename(metric = .metric,
+         estimator = .estimator,
+         folds = n,
+         standard_error = std_err) %>% 
+  mutate(mean = round(mean, digits = 4),
+         standard_error = round(standard_error, digits = 4)) %>% 
+  kbl(caption = "Table of Cross-Validation Metrics") %>% 
+  kable_styling(latex_options = c("striped", "scale_down", "HOLD_position"))
+```
+
+According to our cross-validation metrics our model performed moderately well. An accuracy of 78.47\% is a moderately accurate model, but it's mostly caused by difficulties distinguishing classes. The `roc_auc` score further points that the model struggles to distinguish between the positive and negative classes as it's almost a 50-50 chance.
+
+## Confusion Matrix of Model Predictions
+
+### Prediction Metrics by Class
+
+```{r confusionMatrixbyClass}
+conf_mat$byClass[, -c(3:6, 11)] %>% 
+  round(digits = 3) %>% 
+  kbl(caption = "Prediction Metrics by Class") %>% 
+  kable_styling(latex_options = c("striped", "scale_down", "HOLD_position"))
+```  
+
+### Confusion Matrix
+
+```{r confusionMatrixbyTotals}
+conf_mat$table %>% 
+  round(digits = 3) %>% 
+  kbl(caption = "Confusion Matrix of Predictions") %>% 
+  kable_styling(latex_options = c("striped", "scale_down", "HOLD_position"))
+```
+
+## Variable Importance Plot
+
+```{r variableImportance, fig.cap="Variable Importance Plot", fig.height=6}
+vip_plot
 ```
 
 \newpage
 
 # Conclusion
 
-```{r}
+We were able to discover some important characteristics with identifying draft biases.
 
-```
+The first of these biases is the bias towards drafting high school vs. college baseball players. More often than not college players are drafted more frequently, but this is likely due to the fact that teams are more cautious with drafting high school players unless they're exemplary. This is illustrated by the higher rate of high school players being drafted in the rounds 1 through 5 than anywhere else in the draft. This supports the idea that the high school players being drafted are elite, and are being drafted very early on in the draft.
+
+Another factor we were able to unlock was the draft bias for players depending upon their home state. To no surprise players were most frequently from larger states such as California, Texas, and Florida but all states have high populations. Aside from this there was an affinity for players hailing from states in warmer climates such as states in the south, and states in the west. It's likely teams would be hesistant to drafting players from an underrepresented state like Vermont, or Wyoming due to the lower talent pool, and the lack of history and certainty of players from those areas historically. 
+
+Using our metric for success as `fWAR` we were able to determine from our statistical data concerning draft prospects who made the MLB that those players who tend to succeed most in their careers are those playing high leverage positions. These positions include third base (3B), left field (LF), and center field (CF). Players at these positions contribute drastic amounts of value in both their batting, and fielding aspects of the game. These players tend to be overall strong players and can contribute at most levels of the game. The other position which stuck out was first base (1B), but first basemen rarely contribute anything meaningful on the defensive side of the ball. First basemen tend to have a more relaxed fielding responsibility but they tend to be some of the best hitters all around. First basemen are known to be phenomenal power hitters, and home runs and runs batted in are two of the most valuable contributors to value in terms of `fWAR`.
+
+In regards to predicting a player's success based upon their draft information, demographics, and physical characteristics proved to be a more difficult task. We did not expect to have phenomenal performance as the beauty of baseball is described by the randomness of the game.
+
+We were able to produce a model with a cross-validated accuracy of about 78.5\%. By no means is this accuracy low, but top performing accuracy models will usually be in the mid 80s to higher in accuracy. The problem lies with predicting which players will be performing at a high level. The model was excellent at predicting the players who would perform poorly in their careers (`fWAR_class`: "Less than 5 fWAR"), but struggled at accurately predicting those who performed well during their major league careers. 
+
+The meaningful outcome from the model lies in the variable importance of the model constructed. It does not imply that all the variables are truly important, but there are a few which likely do have a strong impact on player success. There a 6 important variables I want to highlight from the model:
+
+- `debut_age`
+- `yrs_before_debut`
+- `pick_number`
+- `person_weight`
+- `person_height`
+- `draft_age`
 
 \newpage
 
