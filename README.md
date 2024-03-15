@@ -4,6 +4,23 @@ The focus of the project within this repository is to analyze and identify Draft
 
 Aside from identifying these draft biases we sought to determine if there was a method for identifying a player's success level in the MLB. Our metric of success used was FanGraphs Wins Above Replacement (fWAR). Our predictors were comprised entirely of variables that included information of player demographics, and physical characteristics. 
 
+## Contributors
+
+- Peter D. DePaul III
+  - Data Collection
+  - Data Cleaning
+  - EDA and Visualizations
+  - Model Creation
+  - Final Report
+- Anish Ravilla
+  - Final Report
+- Robin Lee
+  - EDA and Visualizations
+  - Final Report
+- Alan Wong
+- Kevin Kim
+- Hongye Zhang
+
 ## Data Dictionary
 
 To find our dictionary of variables click below:
