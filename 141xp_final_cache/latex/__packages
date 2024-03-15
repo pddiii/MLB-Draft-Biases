@@ -12,11 +12,6 @@ purrr
 stringr
 forcats
 lubridate
-leaflet
-maps
-mapdata
-mapproj
-reshape2
 tidymodels
 broom
 scales
@@ -40,3 +35,8 @@ caret
 Boruta
 randomForest
 kableExtra
+leaflet
+maps
+mapdata
+mapproj
+reshape2
