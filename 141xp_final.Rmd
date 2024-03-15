@@ -93,7 +93,7 @@ completing college.
 
 \smallskip
 
-Teams are awarded draft picks based on a **draft lottery**, with the
+Teams are awarded draft picks based on a **draft lottery**, since 2023, with the
 teams that did not make the playoffs the previous year being entered
 into the lottery, and are given the opportunity to go first in the
 draft. The draft currently undergoes 20 rounds of selections, where each
@@ -152,13 +152,13 @@ performance [@crotin2023].
 ## Relationship between drafting High School or College Players
 
 In order to analyze the relationship between draft round and high school
-status, we created a barplot showing the total number of draftees by
+status, we created a barplot showing the percent of draftees by
 round with colors denoting high school status when drafted. By analyzing
 this barplot [see Figure \@ref(fig:barplot)], we can see that as you get
 further into the first 10 rounds that siginficantly less high school
 players are drafted.
 
-```{r barplot, fig.align='center', fig.cap="Frequency of High School Players by Round", warning=FALSE}
+```{r barplot, fig.align='center', fig.cap="Percentage of Players by Round and School Level", warning=FALSE}
 # Create a dataframe with state naming data
 state_data <- data.frame(names = state.name, abbreviation = tolower(state.abb))
 
@@ -168,6 +168,17 @@ draft_info <-
   select(-home_state) %>%
   rename(home_state = names) %>% 
   drop_na(home_state)
+
+players_per_round <- 
+  draft_info %>% 
+  filter(as.integer(pick_round) %in% c(1:10)) %>% 
+  drop_na(high_school) %>% 
+  group_by(pick_round) %>% 
+  summarise(drafted_players = n()) %>% 
+  ungroup() %>% 
+  mutate(pick_round = factor(pick_round, levels = c(1:10))) %>% 
+  arrange(pick_round)
+
 # Subset the data to only players drafted in the first 10 rounds
 first_10 <- 
   draft_info %>% 
@@ -177,17 +188,27 @@ first_10 <-
   summarise(num_players = n()) %>% 
   arrange(desc(num_players)) %>% 
   ungroup() %>% 
+  inner_join(players_per_round, by = "pick_round") %>% 
   mutate(pick_round = factor(pick_round, levels = c(1:10)),
          high_school = as.factor(ifelse(high_school == "Yes", "High School", 
-                                        "College")))
+                                        "College") ),
+         percent = round(num_players / drafted_players * 100, 2)  )%>% 
+  arrange(pick_round)
 
 hs_by_round_plot <-
-  ggplot(first_10, aes(x = pick_round, y = num_players, fill = high_school)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  labs(y = "Total Players", x = "Draft Round", 
-       title = "Number of Draftees by Pick and Round",
-       fill = "High School Player") +
-  theme_minimal()
+  ggplot(first_10, aes(x = pick_round, y = percent, fill = high_school)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(y = "Percent of Draftees", x = "Draft Round", 
+       title = "Percent of Draftees by Pick and Round",
+       fill = "School Level") +
+  theme_minimal() +
+  geom_text(aes(label = paste(percent, "%", sep = "")), 
+                position = position_stack(vjust = 0.5), size = 4) +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10))
 hs_by_round_plot
 ```
 
@@ -208,13 +229,23 @@ plot1 <- ggplot(bat_draft_df, aes(x = DifferenceYearsDraftFGPlayed)) +
   geom_histogram(binwidth = 0.5, fill = "skyblue", color = "black", alpha = 0.8) +
   labs(title = "Years for a Batting Draftee to Play Their First MLB Game", 
        x = "# of Years", y = "Frequency") +
-  theme_minimal()
+  theme_minimal() +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10))
 
 plot2 <- ggplot(pitch_draft_df, aes(x = DifferenceYearsDraftFGPlayed)) +
   geom_histogram(binwidth = 0.5, fill = "orange", color = "black", alpha = 0.8) +
   labs(title = "Years for a Pitching Draftee to Play Their First MLB Game", 
        x = "# of Years", y = "Frequency") + 
-  theme_minimal()
+  theme_minimal() +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10))
 grid.arrange(plot1, plot2, nrow = 1)
 ```
 
@@ -252,7 +283,12 @@ plot1 <- ggplot(bat_draft_df, aes(x = person_weight, y=person_height)) +
   geom_smooth(method = "lm", se = FALSE, color = "black", alpha = 0.8) +
   labs(title = "Weight vs. Height (Batters)", 
        x = "Draftee Weight", y = "Draftee Height") +
-  theme_minimal()
+  theme_minimal() +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10))
 
 plot2 <- ggplot(pitch_draft_df, aes(x = person_weight, y=person_height)) +
   geom_point(fill="orange", shape=21, size=2, alpha = 0.8) +
@@ -271,7 +307,12 @@ plot2 <- ggplot(pitch_draft_df, aes(x = person_weight, y=person_height)) +
   geom_smooth(method = "lm", se = FALSE, color = "black", alpha = 0.8) +
   labs(title = "Weight vs. Height (Pitchers)", 
        x = "Draftee Weight", y = "Draftee Height") +
-  theme_minimal()
+  theme_minimal() +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10))
 
 grid.arrange(plot1, plot2, nrow = 1)
 ```
@@ -353,7 +394,11 @@ home_heat_map <-
   scale_fill_gradient(low = "white", high = "darkred", 
                       name = "Players Drafted") +
   labs(title = "Heat Map of Drafted Players") +
-  theme(plot.title = element_text(hjust = 0.5))
+  theme(plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10))
 home_heat_map
 ```
 
@@ -395,7 +440,12 @@ ggplot(players, aes(x = time_played, y=fWAR)) +
             color = "red", hjust = -4, vjust = 0, alpha = 0.8) +
   labs(title = "Total Time in MLB vs. WAR", 
        x = "Total Time Played in MLB", y = "Wins Above Replacement") +
-  theme_minimal()
+  theme_minimal() +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 10),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10))
 ```
 
 By comparing each player's total time played in MLB and WAR [see Figure
@@ -412,11 +462,7 @@ they play longer.
 
 ### How often do Draftees make it to the MLB?
 
-In baseball, not every player who is drafted ultimately plays in the
-major leagues. In order to identify who is ultimately successful, we
-need to first identify the players that even make it to the MLB.
-
-```{r piechart, fig.cap="Pie Chart of Draftees MLB Status", out.height="40%", out.width="40%",fig.align = 'center'}
+```{r piechart, fig.cap="Pie Chart of Draftees MLB Status", out.height="80%", out.width="80%",fig.align = 'center'}
 # load in full batters draft data
 bat_draft <- 
   fread('Data/batters/batters_full_draft.csv') %>%
@@ -545,7 +591,12 @@ pie_chart <-
   coord_polar("y", start = 0) +
   theme_void() +
   labs(title = "Pie Chart of MLB Status") + 
-  geom_text(aes(label = c(paste(mlb_info$`% Made MLB`, "%", sep = ""), paste(mlb_info$`% Missed MLB`, "%", sep = "")), hjust = 0.75, vjust = -1), size = 5.3)
+  geom_text(aes(label = c(paste(mlb_info$`% Made MLB`, "%", sep = ""), 
+                          paste(mlb_info$`% Missed MLB`, "%", sep = "")), 
+                hjust = 0.75, vjust = -1), size = 5.3) +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        legend.title = element_text(size = 12, face = "bold"),
+        legend.text = element_text(size = 12))
 pie_chart
 
 # Total fWAR by draft class (year)
@@ -594,7 +645,11 @@ draft_class_fwar <-
   labs(x = "Draft Class", y = "Total fWAR", 
        title = "Top 10 Draft Classes by Total fWAR") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 12),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10)) +
   geom_text(aes(label = total_fWAR, vjust = -0.5))
 draft_class_fwar
 ```
@@ -645,7 +700,11 @@ pos_class_fwar <-
   labs(x = "Draft Class/Position", y = "Total fWAR", 
        title = "Top 10 Position Classes by Total fWAR") +
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 12),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10)) +
   geom_text(aes(label = total_fWAR, vjust = -0.5))
 
 pos_class_fwar
@@ -663,7 +722,7 @@ demographics, and the characteristics of their draft position.
 We believe it would be difficult to predict a player's specific fWAR
 numerical value without any informational statistics of their playing
 careers. Thus, in order to make this a simpler process, we have come up
-with the idea of creating a categorical (factor) variable named
+with the idea of creating an ordinal categorical (factor) variable named
 `fWAR_class` with 6 levels:
 
 -   Greater than 25 fWAR
@@ -788,7 +847,7 @@ data <- players %>%
                                            "Less than 5 fWAR") ) ) ) ), 
                              levels = c("Greater than 25 fWAR", "20-25 fWAR",
                                         "15-20 fWAR", "10-15 fWAR", "5-10 fWAR",
-                                        "Less than 5 fWAR")),
+                                        "Less than 5 fWAR"), ordered = TRUE),
          pick_round = factor(pick_round, levels = round_numbers),
          top_pick = factor(ifelse(pick_number == 1, 1, 0)),
          top_10 = factor(ifelse(pick_number <= 10, 1, 0)),
@@ -823,7 +882,7 @@ data <- players %>%
 
 set.seed(1)
 data_split <- initial_split(data, prop = 0.70,
-                            strata = position)
+                            strata = fWAR_class)
 train <- training(data_split)
 test <- testing(data_split)
 
@@ -978,7 +1037,7 @@ boost_metrics %>%
 
 According to our cross-validation metrics [see Table
 \@ref(tab:crossvalidation)], our model perform moderately well. This is
-because an accuracy of 78.47% is considered a "moderately accurate"
+because an accuracy of 78.32% is considered a "moderately accurate"
 model, though we believe this is mostly caused by our model's
 difficulties in distinguishing between classes. The `roc_auc` score
 further shows that the model struggles to distinguish between the
@@ -1001,7 +1060,7 @@ Analyzing our model's prediction metrics according to each WAR category
 [see Table \@ref(tab:confusionMatrixbyClass)], our model performs best
 when predicting players with less than 5 fWAR and greatly suffers as it
 increases. In other words, it is especially good at identifying players
-who will perform below average (as seen by 0.987 Sensitivity and 0.766
+who will perform below average (as seen by 0.991 Sensitivity and 0.767
 Detection Rate). However, our model suffers when predicting players who
 are average or better, as their detection rates are all 0%, with no
 detection prevalence and sensitivity. There is some success when
@@ -1045,7 +1104,12 @@ Tree model, we rank each feature in the prediction process, and identify
 whether or not they have a strong impact on a player's WAR.
 
 ```{r variableImportance, fig.cap="Variable Importance Plot", fig.height=6}
-vip_plot
+vip_plot +
+  theme(plot.title = element_text(size = 12, face = "bold"),
+        axis.title = element_text(size = 12, face = "bold"),
+        axis.text = element_text(size = 12),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10))
 ```
 
 According to the variable importance plot [see Figure
